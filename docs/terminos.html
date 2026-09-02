@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Términos de servicio · Control de gasto personal</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --ink: #1a1a1a;
+        --muted: #5c5c5c;
+        --rule: #e3e3e3;
+        --bg: #fdfdfc;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #e8e8e6;
+          --muted: #a0a09c;
+          --rule: #333;
+          --bg: #17171a;
+        }
+      }
+      body {
+        margin: 0 auto;
+        padding: 3rem 1.25rem 5rem;
+        max-width: 42rem;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      h1 {
+        font-size: 1.6rem;
+        line-height: 1.25;
+        margin: 0 0 0.35rem;
+      }
+      h2 {
+        font-size: 1.05rem;
+        margin: 2.25rem 0 0.5rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--rule);
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 0.875rem;
+        margin: 0 0 2rem;
+      }
+      .meta strong { font-weight: 600; color: var(--ink); }
+      ul { padding-left: 1.25rem; }
+      li { margin: 0.3rem 0; }
+      a { color: inherit; }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--rule);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Términos de servicio</h1>
+    <p class="meta">
+      <strong>Aplicación:</strong> Control de gasto personal<br />
+      <strong>Contacto:</strong> TU-EMAIL<br />
+      <strong>Última actualización:</strong> 2 de septiembre de 2026
+    </p>
+
+    <h2>1. Objeto y ámbito</h2>
+    <p>
+      Esta aplicación es una herramienta de uso <strong>personal y no comercial</strong>, desarrollada y
+      utilizada por una única persona sobre sus propias cuentas bancarias. No se presta como servicio a
+      terceros, no admite registro de usuarios y no se cobra por ella.
+    </p>
+
+    <h2>2. Qué hace</h2>
+    <p>
+      Lee los movimientos de la cuenta bancaria autorizada a través de Enable Banking Oy, proveedor de
+      servicios de información sobre cuentas (AISP) registrado en Finlandia y supervisado por la FIN-FSA, y los
+      clasifica por categorías para calcular el gasto mensual.
+    </p>
+    <p>
+      El acceso es <strong>exclusivamente de lectura</strong>. La aplicación <strong>no inicia pagos, no ordena
+      transferencias y no modifica nada</strong> en la cuenta.
+    </p>
+
+    <h2>3. Autorización y su revocación</h2>
+    <p>
+      El acceso requiere el consentimiento del titular ante su propio banco, mediante autenticación reforzada
+      de cliente (SCA) conforme a la directiva PSD2. Ese consentimiento:
+    </p>
+    <ul>
+      <li>
+        tiene una validez limitada, que fija la entidad bancaria (hasta 180 días), tras la cual hay que
+        renovarlo con una nueva autenticación;
+      </li>
+      <li>
+        es <strong>revocable en cualquier momento</strong> desde la banca online del banco o desde el panel de
+        Enable Banking, sin necesidad de avisar a nadie.
+      </li>
+    </ul>
+    <p>
+      Revocarlo interrumpe el acceso de inmediato. Los datos ya descargados permanecen en la base de datos
+      local hasta que su titular los borre.
+    </p>
+
+    <h2>4. Sin garantías</h2>
+    <p>
+      La aplicación se ofrece <strong>tal cual</strong>, sin garantía de disponibilidad, exactitud ni
+      continuidad. Los importes, saldos y categorías que muestra son informativos: <strong>la información
+      oficial es la de la banca online de la entidad</strong>. La clasificación por categorías es automática y
+      puede equivocarse.
+    </p>
+    <p>
+      No se asume responsabilidad por decisiones tomadas a partir de lo que muestre la aplicación, ni por
+      interrupciones causadas por el banco, por Enable Banking o por la propia herramienta.
+    </p>
+
+    <h2>5. Datos personales</h2>
+    <p>
+      El tratamiento de datos se describe en la
+      <a href="./privacidad.html">política de privacidad</a>, que forma parte de estos términos.
+    </p>
+
+    <h2>6. Terminación</h2>
+    <p>
+      El uso puede cesar en cualquier momento revocando el consentimiento bancario y eliminando los datos
+      almacenados.
+    </p>
+
+    <h2>7. Legislación aplicable</h2>
+    <p>Legislación española y normativa europea aplicable (RGPD y PSD2).</p>
+
+    <footer><a href="./privacidad.html">Política de privacidad</a></footer>
+  </body>
+</html>

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Política de privacidad · Control de gasto personal</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --ink: #1a1a1a;
+        --muted: #5c5c5c;
+        --rule: #e3e3e3;
+        --bg: #fdfdfc;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #e8e8e6;
+          --muted: #a0a09c;
+          --rule: #333;
+          --bg: #17171a;
+        }
+      }
+      body {
+        margin: 0 auto;
+        padding: 3rem 1.25rem 5rem;
+        max-width: 42rem;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      h1 {
+        font-size: 1.6rem;
+        line-height: 1.25;
+        margin: 0 0 0.35rem;
+      }
+      h2 {
+        font-size: 1.05rem;
+        margin: 2.25rem 0 0.5rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--rule);
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 0.875rem;
+        margin: 0 0 2rem;
+      }
+      .meta strong { font-weight: 600; color: var(--ink); }
+      ul { padding-left: 1.25rem; }
+      li { margin: 0.3rem 0; }
+      a { color: inherit; }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--rule);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Política de privacidad</h1>
+    <p class="meta">
+      <strong>Aplicación:</strong> Control de gasto personal<br />
+      <strong>Responsable del tratamiento:</strong> persona física, uso personal y no comercial<br />
+      <strong>Contacto de protección de datos:</strong> TU-EMAIL<br />
+      <strong>Última actualización:</strong> 2 de septiembre de 2026
+    </p>
+
+    <h2>Qué es esta aplicación</h2>
+    <p>
+      Una herramienta personal de control de gasto. La usa <strong>una única persona: su propio autor, sobre
+      sus propias cuentas bancarias</strong>. No se ofrece a terceros, no tiene usuarios registrados y no se
+      comercializa.
+    </p>
+
+    <h2>Qué datos se tratan</h2>
+    <p>
+      A través de Enable Banking Oy, proveedor de servicios de información sobre cuentas (AISP) registrado en
+      Finlandia y supervisado por la FIN-FSA, la aplicación lee de la cuenta bancaria autorizada:
+    </p>
+    <ul>
+      <li>identificadores de la cuenta (IBAN, nombre del titular, divisa);</li>
+      <li>saldos;</li>
+      <li>movimientos: fecha, importe, concepto y contraparte.</li>
+    </ul>
+    <p>
+      No se tratan datos de terceros más allá de los que el propio banco incluya en el concepto de un
+      movimiento (por ejemplo, el nombre de quien envía una transferencia).
+    </p>
+
+    <h2>Para qué</h2>
+    <p>
+      Clasificar los movimientos por categoría y calcular el gasto mensual. Ese es el único fin. No hay
+      elaboración de perfiles con efectos jurídicos, no hay decisiones automatizadas y no se cruza con ninguna
+      otra fuente de datos.
+    </p>
+
+    <h2>Base jurídica</h2>
+    <p>
+      El <strong>consentimiento explícito</strong> del titular de la cuenta (art. 6.1.a RGPD), otorgado ante su
+      propio banco mediante autenticación reforzada de cliente conforme a la directiva PSD2. El consentimiento
+      es revocable en cualquier momento, desde la banca online del banco o desde el panel de Enable Banking.
+    </p>
+
+    <h2>Dónde se guardan y quién accede</h2>
+    <p>
+      La interfaz de la aplicación se ejecuta <strong>en local</strong>, en el ordenador de su autor. Los
+      movimientos se guardan en una base de datos PostgreSQL bajo su control exclusivo.
+    </p>
+    <p>
+      <strong>No se ceden datos a terceros.</strong> No hay analítica, ni publicidad, ni seguimiento, ni
+      transferencias internacionales. El único tercero que interviene es Enable Banking, como encargado del
+      acceso a la API bancaria, sujeto a su propia política de privacidad.
+    </p>
+
+    <h2>Cuánto tiempo</h2>
+    <p>
+      Los movimientos se conservan mientras su titular quiera usarlos y se eliminan cuando él lo decida. La
+      autorización de acceso al banco caduca por sí sola según el plazo que fije la entidad (hasta 180 días) y
+      requiere renovarse con una nueva autenticación reforzada.
+    </p>
+
+    <h2>Derechos</h2>
+    <p>
+      Al ser el titular de los datos y a la vez el responsable del tratamiento, ejerce sus derechos de acceso,
+      rectificación, supresión, limitación, portabilidad y oposición directamente sobre la base de datos, y
+      puede revocar el consentimiento ante su banco. Para cualquier cuestión: TU-EMAIL.
+    </p>
+    <p>
+      Autoridad de control competente: Agencia Española de Protección de Datos
+      (<a href="https://www.aepd.es">www.aepd.es</a>).
+    </p>
+
+    <footer><a href="./terminos.html">Términos de servicio</a></footer>
+  </body>
+</html>
