@@ -135,6 +135,10 @@ function accountUids(session) {
 export function createApiMiddleware(env) {
   const config = {
     applicationId: env.ENABLE_BANKING_APPLICATION_ID,
+    // Las dos formas de dar la clave privada: el PEM entero en una variable (lo que
+    // permite desplegar donde no haya ficheros secretos ni disco) o la ruta a su fichero,
+    // más cómodo en local. Gana la variable. Ver `readPrivateKey` en enablebanking.mjs.
+    privateKey: env.ENABLE_BANKING_PRIVATE_KEY,
     keyPath: env.ENABLE_BANKING_KEY_PATH,
     databaseUrl: env.DATABASE_URL,
     country: env.ENABLE_BANKING_COUNTRY || 'ES',
@@ -184,11 +188,15 @@ export function createApiMiddleware(env) {
     },
 
     'GET /api/bank/status': async () => {
-      const session = readSession()
+      // La sesión vive ahora en la base de datos, así que el esquema tiene que existir
+      // antes de leerla: por eso `withSchema()` sube por encima del try que solo cubría
+      // las estadísticas.
+      let session = null
       let stats = null
       let dbError = null
       try {
         await withSchema()
+        session = await readSession(config.databaseUrl)
         stats = await getStats(config.databaseUrl)
       } catch (error) {
         // La BDD puede estar aún sin configurar: el estado se muestra igual.
@@ -196,7 +204,8 @@ export function createApiMiddleware(env) {
         dbError = error.message
       }
       return {
-        configured: Boolean(config.applicationId && config.keyPath),
+        // La clave puede llegar por variable de entorno o por fichero: basta una.
+        configured: Boolean(config.applicationId && (config.privateKey || config.keyPath)),
         connected: Boolean(session?.sessionId),
         aspsp: session?.aspsp ?? null,
         validUntil: session?.validUntil ?? null,
@@ -237,14 +246,17 @@ export function createApiMiddleware(env) {
         validUntil,
       })
       // El state se guarda para comprobar que el redirect que vuelve es el nuestro.
-      writeSession({ ...(readSession() ?? {}), pending: { state, aspspName, country, validUntil } })
+      await withSchema()
+      const previous = (await readSession(config.databaseUrl)) ?? {}
+      await writeSession(config.databaseUrl, { ...previous, pending: { state, aspspName, country, validUntil } })
       return { url: auth.url ?? auth.redirect_url, state }
     },
 
     'GET /api/bank/callback': async (_req, res, url) => {
       const code = url.searchParams.get('code')
       const state = url.searchParams.get('state')
-      const pending = readSession()?.pending
+      await withSchema()
+      const pending = (await readSession(config.databaseUrl))?.pending
 
       const fail = (reason) => {
         res.statusCode = 302
@@ -255,7 +267,7 @@ export function createApiMiddleware(env) {
       if (pending && state && pending.state !== state) return fail('El state del redirect no coincide.')
 
       const session = await createClient(config).createSession(code)
-      writeSession({
+      await writeSession(config.databaseUrl, {
         sessionId: session.session_id ?? session.sessionId,
         accounts: session.accounts ?? [],
         aspsp: session.aspsp?.name ?? pending?.aspspName ?? null,
@@ -270,7 +282,8 @@ export function createApiMiddleware(env) {
     },
 
     'POST /api/bank/sync': async (req) => {
-      const session = readSession()
+      await withSchema()
+      const session = await readSession(config.databaseUrl)
       if (!session?.sessionId) throw new Error('No hay ninguna conexión bancaria activa. Conecta el banco primero.')
 
       const body = await readBody(req)
@@ -325,7 +338,8 @@ export function createApiMiddleware(env) {
     },
 
     'POST /api/bank/disconnect': async () => {
-      clearSession()
+      await withSchema()
+      await clearSession(config.databaseUrl)
       return { connected: false }
     },
 

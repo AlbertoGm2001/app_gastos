@@ -1,50 +1,51 @@
 /**
- * Sesión de Enable Banking en disco local (.enablebanking/session.json, gitignorado).
+ * Sesión del consentimiento de Enable Banking, guardada en Postgres (tabla `app_state`,
+ * clave `bankSession`). Ver el comentario de `readBankSession` en `server/db.mjs` para el
+ * por qué de que esto sean datos y no una credencial.
  *
- * No va a Neon a propósito: la base de datos guarda datos, no credenciales, y la app
- * solo corre en esta máquina. Un consentimiento PSD2 dura como mucho 90 días, así que
- * este fichero se renueva con un SCA nuevo un puñado de veces al año.
+ * Antes vivía en `.enablebanking/session.json`. Se movió al desplegar: el sistema de
+ * ficheros de un servicio en Render es efímero —se pierde en cada despliegue y cada vez
+ * que el servicio se duerme— y conservarlo exigía un disco persistente, que solo existe
+ * en los planes pagados. Un consentimiento perdido no es un dato que se regenere solo:
+ * hay que repetir el SCA en el banco a mano.
+ *
+ * Un consentimiento PSD2 dura como mucho 90 días, así que esto se renueva un puñado de
+ * veces al año.
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { clearBankSession, readBankSession, writeBankSession } from './db.mjs'
 
 /**
- * `ENABLEBANKING_DIR` existe para Render: allí el sistema de ficheros del servicio es
- * efímero —cada despliegue arranca de cero— y el consentimiento se perdería en cada push,
- * obligando a repetir el SCA en el banco. La variable apunta al disco persistente que
- * declara `render.yaml`. En local no se pone y todo sigue en `.enablebanking/` como antes.
+ * El fichero de antes. Se sigue leyendo una única vez, para que la sesión que ya estaba
+ * en esta máquina suba a la base de datos en vez de obligar a un SCA nuevo. Solo se lee:
+ * nunca se vuelve a escribir ahí.
  */
-const DIR = process.env.ENABLEBANKING_DIR
-  ? path.resolve(process.env.ENABLEBANKING_DIR)
-  : path.resolve(process.cwd(), '.enablebanking')
-const FILE = path.join(DIR, 'session.json')
+const LEGACY_FILE = path.resolve(process.cwd(), '.enablebanking', 'session.json')
 
-export function readSession() {
+function readLegacyFile() {
   try {
-    return JSON.parse(fs.readFileSync(FILE, 'utf8'))
+    return JSON.parse(fs.readFileSync(LEGACY_FILE, 'utf8'))
   } catch {
     return null
   }
 }
 
-export function writeSession(session) {
-  fs.mkdirSync(DIR, { recursive: true })
-  fs.writeFileSync(FILE, JSON.stringify(session, null, 2), 'utf8')
+export async function readSession(databaseUrl) {
+  const stored = await readBankSession(databaseUrl)
+  if (stored) return stored
+
+  const legacy = readLegacyFile()
+  if (!legacy) return null
+  await writeBankSession(databaseUrl, legacy)
+  console.log('Sesión de Enable Banking migrada de .enablebanking/session.json a la base de datos.')
+  return legacy
 }
 
-export function clearSession() {
-  try {
-    fs.rmSync(FILE)
-  } catch {
-    /* no había sesión */
-  }
+export async function writeSession(databaseUrl, session) {
+  await writeBankSession(databaseUrl, session)
 }
 
-/** Una autorización pendiente vale para un único redirect; se guarda para validar el `state`. */
-export function readPending() {
-  return readSession()?.pending ?? null
-}
-
-export function writePending(pending) {
-  writeSession({ ...(readSession() ?? {}), pending })
+export async function clearSession(databaseUrl) {
+  await clearBankSession(databaseUrl)
 }

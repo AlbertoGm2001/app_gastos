@@ -18,7 +18,28 @@ const base64url = (value) => Buffer.from(value).toString('base64url')
 
 let cached = null // { token, expiresAt }
 
-function readPrivateKey(keyPath) {
+/**
+ * La clave privada RSA, de la variable de entorno o de un fichero.
+ *
+ * La variable (`ENABLE_BANKING_PRIVATE_KEY`, con el PEM entero dentro) existe para poder
+ * desplegar en cualquier sitio sin depender de que el proveedor ofrezca ficheros
+ * secretos ni disco. En local sigue siendo más cómodo el fichero, así que se admiten
+ * las dos y gana la variable.
+ *
+ * Una barra invertida seguida de `n`, escrita como dos caracteres, se convierte en un
+ * salto de línea de verdad: muchos paneles de variables de entorno no admiten valores
+ * multilínea, y un PEM sin sus saltos no lo acepta `createSign`. Si el valor ya trae
+ * saltos reales, el reemplazo no encuentra nada y no toca nada.
+ */
+function readPrivateKey({ privateKey, keyPath }) {
+  if (privateKey?.trim()) return privateKey.replace(/\\n/g, '\n')
+
+  if (!keyPath) {
+    throw new Error(
+      'Falta la clave privada de Enable Banking: pon el PEM en ENABLE_BANKING_PRIVATE_KEY ' +
+        'o la ruta a su fichero en ENABLE_BANKING_KEY_PATH.',
+    )
+  }
   try {
     return fs.readFileSync(keyPath, 'utf8')
   } catch {
@@ -33,7 +54,7 @@ function readPrivateKey(keyPath) {
  * JWT RS256 con el formato que exige Enable Banking: el `kid` es el id de la
  * aplicación y el issuer/audience son constantes suyas, no nuestras.
  */
-function buildToken({ applicationId, keyPath }) {
+function buildToken({ applicationId, keyPath, privateKey }) {
   const now = Math.floor(Date.now() / 1000)
   if (cached && cached.expiresAt - 60 > now) return cached.token
 
@@ -45,20 +66,20 @@ function buildToken({ applicationId, keyPath }) {
     exp: now + TOKEN_TTL_SECONDS,
   }
   const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`
-  const signature = createSign('RSA-SHA256').update(signingInput).sign(readPrivateKey(keyPath)).toString('base64url')
+  const signature = createSign('RSA-SHA256').update(signingInput).sign(readPrivateKey({ privateKey, keyPath })).toString('base64url')
 
   cached = { token: `${signingInput}.${signature}`, expiresAt: payload.exp }
   return cached.token
 }
 
-export function createClient({ applicationId, keyPath }) {
+export function createClient({ applicationId, keyPath, privateKey }) {
   if (!applicationId) throw new Error('Falta ENABLE_BANKING_APPLICATION_ID en .env.local')
 
   async function request(method, path, body) {
     const response = await fetch(`${BASE_URL}${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${buildToken({ applicationId, keyPath })}`,
+        Authorization: `Bearer ${buildToken({ applicationId, keyPath, privateKey })}`,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),

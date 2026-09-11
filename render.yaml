@@ -9,10 +9,13 @@
 # Los valores marcados `sync: false` NO se guardan aquí —son secretos— y Render los pide
 # al crear el servicio o se editan luego en Environment.
 #
-# Antes de que esto funcione hacen falta dos cosas fuera de este fichero:
-#   1. Un Secret File con la clave privada de Enable Banking (ver ENABLE_BANKING_KEY_PATH).
-#   2. Dar de alta la nueva redirect URL en el Control Panel de Enable Banking.
-# Y queda un asunto de cookies entre orígenes distintos, explicado al final.
+# Cabe en el plan gratuito porque el servicio **no guarda nada en disco**: el
+# consentimiento del banco está en Postgres y la clave privada llega en una variable de
+# entorno. Los discos de Render exigen plan pagado, y era lo único que lo forzaba.
+#
+# Lo que hay que hacer a mano, fuera de este fichero:
+#   1. Pegar el PEM de la clave privada en ENABLE_BANKING_PRIVATE_KEY.
+#   2. Dar de alta la redirect URL (la de Vercel) en el Control Panel de Enable Banking.
 
 services:
   - type: web
@@ -21,7 +24,11 @@ services:
     # Frankfurt: la base de datos de Neon está en eu-central-1 y cada consulta cruza esta
     # distancia. Poner la API en Oregón multiplicaría la latencia de cada sync.
     region: frankfurt
-    plan: starter
+    # El plan gratuito duerme el servicio tras 15 minutos sin tráfico, así que la primera
+    # petición después de un rato tarda en despertar. Lo aguanta porque no hay nada en
+    # disco que perder al dormirse. Ojo: el bloqueo por intentos de login vive en memoria
+    # del proceso (server/auth.mjs) y se reinicia con cada arranque en frío.
+    plan: free
     branch: master
 
     buildCommand: npm ci --omit=dev
@@ -32,19 +39,13 @@ services:
     # bucle; con /api/bank/status gastaría accesos al banco, que están limitados a 4/día.
     healthCheckPath: /api/auth/session
 
-    # El consentimiento de Enable Banking vive en un fichero (server/session.mjs). El
-    # disco de Render es lo único que sobrevive a un despliegue: sin él, cada push
-    # obligaría a repetir el SCA en el banco.
-    disk:
-      name: enablebanking
-      mountPath: /var/data
-      sizeGB: 1
+    # Sin `disk` a propósito: el consentimiento de Enable Banking se guarda en Postgres
+    # (`server/session.mjs`), que sobrevive igual a los despliegues y a que el servicio se
+    # duerma, y no cuesta un plan pagado. Nada más escribe en el sistema de ficheros.
 
     envVars:
       - key: NODE_VERSION
         value: '24'
-      - key: ENABLEBANKING_DIR
-        value: /var/data/enablebanking
 
       # --- Postgres (Neon) ---
       # La cadena completa, con sslmode=require (el TLS se activa solo al detectarlo).
@@ -57,12 +58,13 @@ services:
       # --- Enable Banking ---
       - key: ENABLE_BANKING_APPLICATION_ID
         sync: false
-      # Ruta a la clave privada .pem. Render monta los Secret Files en /etc/secrets/<nombre>,
-      # así que hay que subir la clave como Secret File llamado `enablebanking.pem`
-      # (Dashboard → el servicio → Environment → Secret Files). No se puede declarar aquí:
-      # el contenido de un fichero secreto no va en el repo.
-      - key: ENABLE_BANKING_KEY_PATH
-        value: /etc/secrets/enablebanking.pem
+      # El PEM entero de la clave privada, pegado como valor. Así no hace falta ni Secret
+      # File ni disco, y el despliegue no depende de que el proveedor ofrezca ficheros.
+      # Si el panel no deja pegar varias líneas, vale escribir los saltos como \n: el
+      # servidor los convierte (ver `readPrivateKey` en server/enablebanking.mjs).
+      # En local se sigue usando ENABLE_BANKING_KEY_PATH, que es más cómodo.
+      - key: ENABLE_BANKING_PRIVATE_KEY
+        sync: false
       - key: ENABLE_BANKING_COUNTRY
         value: ES
       # Apunta al dominio de **Vercel**, no a este servicio: el front proxea /api hacia

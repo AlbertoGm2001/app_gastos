@@ -320,6 +320,40 @@ export async function readUserState(databaseUrl) {
   }
 }
 
+/**
+ * Sesión del consentimiento de Enable Banking. Vive en `app_state` y **no** en un fichero
+ * porque el sistema de ficheros de un servicio desplegado es efímero: en Render solo
+ * persiste con un disco, y los discos exigen plan pagado. Aquí sobrevive a los
+ * despliegues y a que el servicio se duerma.
+ *
+ * No es una credencial: guarda el `sessionId` —una referencia al consentimiento que
+ * custodia Enable Banking—, los uids de cuenta y las fechas. Toda petición al banco se
+ * autentica firmando un JWT con la clave privada RSA, que nunca sale del entorno del
+ * proceso. Sin esa clave el `sessionId` no abre nada, así que esto son datos, que es lo
+ * que va en la base de datos.
+ *
+ * Deliberadamente fuera de `STATE_KEYS`: `PUT /api/state` no debe poder tocarla.
+ */
+const BANK_SESSION_KEY = 'bankSession'
+
+export async function readBankSession(databaseUrl) {
+  const { rows } = await query(databaseUrl, 'select value from app_state where key = $1', [BANK_SESSION_KEY])
+  return rows[0]?.value ?? null
+}
+
+export async function writeBankSession(databaseUrl, session) {
+  await query(
+    databaseUrl,
+    `insert into app_state (key, value, updated_at) values ($1, $2::jsonb, now())
+     on conflict (key) do update set value = excluded.value, updated_at = now()`,
+    [BANK_SESSION_KEY, JSON.stringify(session)],
+  )
+}
+
+export async function clearBankSession(databaseUrl) {
+  await query(databaseUrl, 'delete from app_state where key = $1', [BANK_SESSION_KEY])
+}
+
 /** Claves de `app_state` que la app puede escribir. Lista blanca: el resto se ignora. */
 const STATE_KEYS = ['categories', 'monthlyGoal', 'relevantThreshold', 'systemPrompt']
 

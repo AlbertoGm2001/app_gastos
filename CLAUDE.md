@@ -186,8 +186,9 @@ Detalles que no son obvios:
 - **Se guarda la respuesta cruda** del banco en la columna `raw` (jsonb) para poder re-mapear conceptos sin
   volver a llamar a la API.
 - **El consentimiento caduca** y renovarlo exige otro SCA; el máximo lo fija cada banco (`maximumConsentValidity`,
-  180 días en los ASPSP españoles del sandbox). La sesión vive en `.enablebanking/session.json` (gitignorado),
-  no en la base de datos: ahí van datos, no credenciales.
+  180 días en los ASPSP españoles del sandbox). **La sesión del consentimiento vive en Postgres**
+  (`app_state`, clave `bankSession`), no en un fichero: ver *El consentimiento va en la base de datos* más
+  abajo.
 - **En sandbox no hay Santander**: la app solo ve *Banco de Sabadell*, *BBVA* y *Mock ASPSP*. Para el Santander
   real hay que pedir acceso a producción (linked accounts) en el Control Panel.
 - **El histórico del extracto y lo del banco conviven** en la misma tabla, distinguidos por la columna
@@ -198,9 +199,31 @@ Detalles que no son obvios:
 - **La importación manual del extracto sigue viva** como respaldo, y ahora sube a la base de datos
   (`POST /api/transactions/import`) en vez de quedarse en el navegador.
 
-Configuración en `.env.local` (plantilla en `.env.local.example`): `ENABLE_BANKING_APPLICATION_ID`,
-`ENABLE_BANKING_KEY_PATH`, `ENABLE_BANKING_REDIRECT_URL` (debe estar en la whitelist del Control Panel) y
-`DATABASE_URL`.
+Configuración en `.env.local` (plantilla en `.env.local.example`): `ENABLE_BANKING_APPLICATION_ID`, la clave
+privada —`ENABLE_BANKING_KEY_PATH` (ruta al `.pem`, lo cómodo en local) o `ENABLE_BANKING_PRIVATE_KEY` (el
+PEM entero, para desplegar), y si están las dos gana la variable—, `ENABLE_BANKING_REDIRECT_URL` (debe estar
+en la whitelist del Control Panel) y `DATABASE_URL`.
+
+### El consentimiento va en la base de datos — REGLA PERMANENTE
+
+La sesión de Enable Banking (`server/session.mjs`) se guarda en `app_state` bajo la clave `bankSession`.
+Estuvo en `.enablebanking/session.json` y se movió al desplegar, por una razón concreta: el sistema de
+ficheros de un servicio alojado es efímero —se pierde en cada despliegue y cada vez que el servicio se
+duerme— y conservarlo obligaba a pagar un disco persistente. Y un consentimiento perdido no se regenera
+solo: hay que repetir el SCA en el banco a mano.
+
+Esto **no contradice** la regla de que en la base de datos van datos y no credenciales. Lo que se guarda es
+el `sessionId` (una referencia al consentimiento que custodia Enable Banking), los uids de cuenta y las
+fechas. La única credencial es la clave privada RSA, que sigue solo en el entorno del proceso: cada petición
+al banco se firma con ella, así que sin la clave el `sessionId` no abre nada.
+
+- Está **deliberadamente fuera de `STATE_KEYS`**: `PUT /api/state` no puede tocarla, y `GET /api/state` no la
+  devuelve. Si algún día se añade a la lista blanca, el navegador podría reescribir o leer el consentimiento.
+- `readSession()` **lee el fichero antiguo una única vez** y lo sube a la base de datos, para no perder una
+  conexión ya establecida. Solo lee: nunca vuelve a escribir en disco.
+- Las rutas del banco hacen `await withSchema()` **antes** de leer la sesión. Cuando estaba en un fichero no
+  hacía falta; ahora una base de datos sin tablas daría un error en `GET /api/bank/status`, que es justo la
+  ruta que tiene que poder informar de que la base de datos no está lista.
 
 ### Despliegue de la API en Render
 
@@ -212,14 +235,18 @@ y la base de datos en Neon. Está escrito pero **no desplegado** todavía.
 - `healthCheckPath: /api/auth/session` es la única ruta pública que no toca Postgres ni el banco. Con una
   ruta protegida el health check daría 401 y Render reiniciaría el servicio en bucle; con `/api/bank/status`
   gastaría accesos al banco, que son 4 al día.
-- **La clave `.pem` va como Secret File**, no como variable: Render los monta en `/etc/secrets/<nombre>`, y
-  a eso apunta `ENABLE_BANKING_KEY_PATH`. Hay que subirla a mano; el contenido de un secreto no va en el repo.
-- **El disco persistente no es opcional.** El consentimiento de Enable Banking vive en un fichero
-  (`server/session.mjs`) y el sistema de ficheros de Render es efímero: sin disco, cada despliegue obligaría a
-  repetir el SCA en el banco. `ENABLEBANKING_DIR` apunta al disco montado; en local no se pone esa variable y
-  todo sigue en `.enablebanking/`.
-- `ENABLE_BANKING_REDIRECT_URL` tiene que apuntar al servicio de Render y estar en la whitelist del Control
-  Panel. Se deja `sync: false` porque el subdominio no se conoce hasta que el servicio existe.
+- **Cabe en el plan gratuito porque el servicio no escribe nada en disco — REGLA PERMANENTE.** Los discos de
+  Render exigen plan pagado, y eran lo único que forzaba el gasto. Dos decisiones lo evitan: el consentimiento
+  está en Postgres (ver arriba) y la clave privada llega en `ENABLE_BANKING_PRIVATE_KEY`, el PEM entero como
+  valor, sin Secret File ni fichero. Si el panel no admite valores multilínea, los saltos se pueden escribir
+  como `\n` y `readPrivateKey()` los convierte. **Cualquier cosa nueva que quiera escribir un fichero rompe
+  esto**: el disco volvería a hacer falta y con él el plan pagado.
+- **El plan gratuito duerme el servicio** tras 15 minutos sin tráfico: la primera petición después tarda en
+  despertar. No se pierde nada al dormirse, pero el bloqueo por intentos de login vive en memoria del proceso
+  (`server/auth.mjs`) y se reinicia en cada arranque en frío, así que el contador de fuerza bruta se pone a
+  cero. La contraseña sigue siendo obligatoria; si eso llega a molestar, el bloqueo tendría que ir a Postgres.
+- `ENABLE_BANKING_REDIRECT_URL` apunta al dominio de **Vercel**, no al de Render, y tiene que estar en la
+  whitelist del Control Panel. Se deja `sync: false` porque el dominio no se conoce hasta que existe.
 - Conviene fijar `AUTH_SECRET` (aquí `generateValue: true`), al contrario que en local: si se deriva de las
   credenciales, cambiar la contraseña cierra las sesiones abiertas.
 
