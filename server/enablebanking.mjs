@@ -19,20 +19,44 @@ const base64url = (value) => Buffer.from(value).toString('base64url')
 let cached = null // { token, expiresAt }
 
 /**
+ * Reconstruye un PEM que haya perdido su formato al viajar por una variable de entorno.
+ *
+ * Pegar una clave en el formulario de un panel la estropea de formas muy variadas, y
+ * todas dan el mismo error críptico de OpenSSL —`error:1E08010C:DECODER routines::
+ * unsupported`—, que no dice ni que el problema sea el formato:
+ *
+ * - los saltos de línea se convierten en espacios, o desaparecen del todo;
+ * - llegan escritos como los dos caracteres `\` y `n`;
+ * - el valor acaba entre comillas, que pasan a formar parte de la cadena.
+ *
+ * En todos los casos el contenido está intacto: es base64 entre una cabecera y un pie. Así
+ * que en vez de intentar adivinar qué le pasó, se extrae el cuerpo, se le quita todo el
+ * espacio en blanco y se vuelve a montar el PEM con sus líneas de 64 caracteres, que es lo
+ * que espera `createSign`. Un PEM correcto pasa por aquí sin cambiar.
+ */
+function normalizePem(value) {
+  const sinComillas = value.trim().replace(/^["']|["']$/g, '')
+  const conSaltos = sinComillas.replace(/\\r/g, '').replace(/\\n/g, '\n')
+
+  const match = conSaltos.match(/-----BEGIN ([A-Z ]+?)-----([\s\S]*?)-----END \1-----/)
+  if (!match) return conSaltos
+
+  const [, tipo, cuerpo] = match
+  const base64 = cuerpo.replace(/\s+/g, '')
+  const lineas = base64.match(/.{1,64}/g) ?? []
+  return `-----BEGIN ${tipo}-----\n${lineas.join('\n')}\n-----END ${tipo}-----\n`
+}
+
+/**
  * La clave privada RSA, de la variable de entorno o de un fichero.
  *
  * La variable (`ENABLE_BANKING_PRIVATE_KEY`, con el PEM entero dentro) existe para poder
  * desplegar en cualquier sitio sin depender de que el proveedor ofrezca ficheros
  * secretos ni disco. En local sigue siendo más cómodo el fichero, así que se admiten
  * las dos y gana la variable.
- *
- * Una barra invertida seguida de `n`, escrita como dos caracteres, se convierte en un
- * salto de línea de verdad: muchos paneles de variables de entorno no admiten valores
- * multilínea, y un PEM sin sus saltos no lo acepta `createSign`. Si el valor ya trae
- * saltos reales, el reemplazo no encuentra nada y no toca nada.
  */
 function readPrivateKey({ privateKey, keyPath }) {
-  if (privateKey?.trim()) return privateKey.replace(/\\n/g, '\n')
+  if (privateKey?.trim()) return normalizePem(privateKey)
 
   if (!keyPath) {
     throw new Error(
@@ -66,7 +90,22 @@ function buildToken({ applicationId, keyPath, privateKey }) {
     exp: now + TOKEN_TTL_SECONDS,
   }
   const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`
-  const signature = createSign('RSA-SHA256').update(signingInput).sign(readPrivateKey({ privateKey, keyPath })).toString('base64url')
+
+  let signature
+  try {
+    signature = createSign('RSA-SHA256').update(signingInput).sign(readPrivateKey({ privateKey, keyPath })).toString('base64url')
+  } catch (error) {
+    // OpenSSL solo dice "DECODER routines::unsupported", que no menciona ni la clave ni el
+    // formato. Traducirlo evita repetir el rato que costó averiguarlo la primera vez: el
+    // síntoma es que todo funciona salvo lo que habla con el banco, porque es lo único
+    // que firma.
+    const fuente = privateKey?.trim() ? 'ENABLE_BANKING_PRIVATE_KEY' : `el fichero ${keyPath}`
+    throw new Error(
+      `No se ha podido firmar con la clave privada de ${fuente}: ${error.message}. ` +
+        'Suele ser que el PEM está mal copiado. Tiene que empezar por "-----BEGIN PRIVATE KEY-----", ' +
+        'acabar por "-----END PRIVATE KEY-----" y no llevar comillas alrededor.',
+    )
+  }
 
   cached = { token: `${signingInput}.${signature}`, expiresAt: payload.exp }
   return cached.token

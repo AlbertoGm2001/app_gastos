@@ -289,6 +289,13 @@ y la base de datos en Neon. Está escrito pero **no desplegado** todavía.
 - `healthCheckPath: /api/auth/session` es la única ruta pública que no toca Postgres ni el banco. Con una
   ruta protegida el health check daría 401 y Render reiniciaría el servicio en bucle; con `/api/bank/status`
   gastaría accesos al banco, que son 4 al día.
+- **El PEM pegado en una variable de entorno llega roto, y el error no lo dice.** Un formulario web convierte
+  los saltos de línea en espacios, o los pierde, o rodea el valor de comillas; OpenSSL responde entonces
+  `error:1E08010C:DECODER routines::unsupported`, que no menciona ni la clave ni el formato. El síntoma es
+  desconcertante: la app funciona entera —movimientos, estado, `GET /api/bank/status`— y solo falla lo que
+  habla con el banco, porque es lo único que firma un JWT. `normalizePem()` en `server/enablebanking.mjs`
+  reconstruye el PEM a partir del base64, así que da igual cómo llegue; y si aun así no firma, el error
+  explica qué mirar en vez de citar a OpenSSL.
 - **Cabe en el plan gratuito porque el servicio no escribe nada en disco — REGLA PERMANENTE.** Los discos de
   Render exigen plan pagado, y eran lo único que forzaba el gasto. Dos decisiones lo evitan: el consentimiento
   está en Postgres (ver arriba) y la clave privada llega en `ENABLE_BANKING_PRIVATE_KEY`, el PEM entero como
