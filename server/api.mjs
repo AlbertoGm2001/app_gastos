@@ -71,7 +71,18 @@ const HISTORY_WINDOW_DAYS = 89
 
 const DAY_MS = 86400000
 
+/** Cada cuánto se admite comprobar el consentimiento contra la API. Ver `verifyConsent`. */
+const VERIFY_EVERY_MS = 6 * 60 * 60 * 1000
+
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10)
+
+/** Días completos que faltan para una fecha ISO, o `null` si no hay fecha o no se entiende. */
+function daysUntil(isoDate) {
+  if (!isoDate) return null
+  const target = Date.parse(isoDate)
+  if (Number.isNaN(target)) return null
+  return Math.floor((target - Date.now()) / DAY_MS)
+}
 
 /**
  * Error con código HTTP propio. Sin esto todo salía como 500, y un login rechazado no es
@@ -150,6 +161,56 @@ export function createApiMiddleware(env) {
   let schemaReady = null
   const withSchema = () => (schemaReady ??= ensureSchema(config.databaseUrl))
 
+  /**
+   * Pregunta a Enable Banking si el consentimiento sigue vivo, y aprovecha para refrescar
+   * `validUntil` y las cuentas con lo que diga la API.
+   *
+   * Hace falta porque el consentimiento se puede **revocar desde la banca online del
+   * banco**, y de eso no nos enteramos: `validUntil` seguiría en el futuro y la app diría
+   * "conectado" hasta que una sincronización fallara. Fallar una sync es el peor momento
+   * para descubrirlo, porque puede haber costado uno de los 4 accesos diarios.
+   *
+   * No se comprueba en cada petición, a propósito. `GET /sessions/{id}` lee el registro de
+   * Enable Banking y no la cuenta del banco —está fuera de "Accounts data" en su
+   * referencia—, pero su documentación no dice que no cuente para el límite de accesos, y
+   * gastarlos a ciegas es caro: no se recuperan hasta el día siguiente. De ahí las dos
+   * cautelas: solo con `?verify`, y como mucho una comprobación cada 6 horas, que en la
+   * interpretación más pesimista son 4 al día y no más.
+   *
+   * `throttled` distingue "no se ha comprobado porque no lo has pedido" de "lo has pedido
+   * pero el freno de 6 h lo ha evitado". Sin esa diferencia el botón de la tarjeta diría
+   * "confirmado por el banco" sin haber hablado con el banco.
+   *
+   * @returns {Promise<{ revoked: boolean | null, error: string | null, session: object | null, throttled: boolean }>}
+   */
+  async function verifyConsent(session, requested) {
+    const fresh = Boolean(session.verifiedAt) && Date.now() - Date.parse(session.verifiedAt) < VERIFY_EVERY_MS
+    if (!requested || fresh) return { revoked: null, error: null, session: null, throttled: requested && fresh }
+
+    try {
+      const remote = await createClient(config).getSession(session.sessionId)
+      const updated = {
+        ...session,
+        accounts: remote.accounts ?? session.accounts,
+        validUntil: remote.access?.valid_until ?? session.validUntil,
+        verifiedAt: new Date().toISOString(),
+      }
+      await writeSession(config.databaseUrl, updated)
+      return { revoked: false, error: null, session: updated, throttled: false }
+    } catch (error) {
+      // Un consentimiento cerrado o desaparecido es una respuesta legítima, no una avería:
+      // se distingue por el mensaje porque el cliente lanza el texto de la API.
+      const revoked = /CLOSED_SESSION|SESSION_NOT_FOUND|→ 40[134]/.test(error.message)
+      if (revoked) {
+        const updated = { ...session, verifiedAt: new Date().toISOString() }
+        await writeSession(config.databaseUrl, updated)
+        return { revoked: true, error: error.message, session: updated, throttled: false }
+      }
+      // Un fallo de red no es una revocación: no se toca nada y se informa.
+      return { revoked: null, error: error.message, session: null, throttled: false }
+    }
+  }
+
   const routes = {
     /**
      * Estado de la sesión. Es la única ruta que el navegador puede pedir sin estar
@@ -187,7 +248,7 @@ export function createApiMiddleware(env) {
       return { authenticated: false }
     },
 
-    'GET /api/bank/status': async () => {
+    'GET /api/bank/status': async (_req, _res, url) => {
       // La sesión vive ahora en la base de datos, así que el esquema tiene que existir
       // antes de leerla: por eso `withSchema()` sube por encima del try que solo cubría
       // las estadísticas.
@@ -203,14 +264,28 @@ export function createApiMiddleware(env) {
         schemaReady = null
         dbError = error.message
       }
+
+      const check = session?.sessionId ? await verifyConsent(session, url.searchParams.has('verify')) : null
+      if (check?.session) session = check.session
+
       return {
         // La clave puede llegar por variable de entorno o por fichero: basta una.
         configured: Boolean(config.applicationId && (config.privateKey || config.keyPath)),
-        connected: Boolean(session?.sessionId),
+        connected: Boolean(session?.sessionId) && check?.revoked !== true,
         aspsp: session?.aspsp ?? null,
         validUntil: session?.validUntil ?? null,
+        // Días que quedan de consentimiento. Se calcula aquí y no en el cliente para que
+        // el aviso de "caduca pronto" no dependa del reloj del navegador.
+        expiresInDays: daysUntil(session?.validUntil),
         accounts: session?.accounts?.length ?? 0,
         connectedAt: session?.connectedAt ?? null,
+        // Qué sabemos del consentimiento y desde cuándo. `revoked` solo es `true` si
+        // Enable Banking lo ha dicho; `null` significa que no se ha comprobado.
+        revoked: check?.revoked ?? null,
+        verifiedAt: session?.verifiedAt ?? null,
+        verifyError: check?.error ?? null,
+        // Se pidió comprobar pero el freno de 6 h lo evitó: no se ha hablado con el banco.
+        verifyThrottled: check?.throttled ?? false,
         db: stats,
         dbError,
       }

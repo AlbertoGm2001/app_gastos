@@ -19,8 +19,28 @@ export interface BankStatus {
   connected: boolean
   aspsp: string | null
   validUntil: string | null
+  /**
+   * Días que quedan de consentimiento. Lo calcula el servidor a partir de `validUntil`
+   * para que el aviso no dependa del reloj del navegador, que el usuario puede tener mal.
+   */
+  expiresInDays: number | null
   accounts: number
   connectedAt: string | null
+  /**
+   * `true` solo si Enable Banking ha confirmado que el consentimiento ya no vale;
+   * `null` si no se ha comprobado. Un consentimiento se puede revocar desde la banca
+   * online del banco, y entonces `validUntil` sigue en el futuro aunque no sirva.
+   */
+  revoked: boolean | null
+  /** Cuándo se comprobó por última vez contra Enable Banking. */
+  verifiedAt: string | null
+  /** La comprobación falló por otra razón (red, API caída): no implica revocación. */
+  verifyError: string | null
+  /**
+   * Se pidió comprobar, pero el servidor no llamó al banco porque ya lo había hecho hace
+   * menos de 6 h. Sin esto, el botón diría "confirmado" sin haber confirmado nada.
+   */
+  verifyThrottled: boolean
   db: BankDbStats | null
   /** Mensaje si la base de datos no está accesible; el resto del estado sigue siendo válido. */
   dbError: string | null
@@ -56,7 +76,15 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-export const getBankStatus = () => call<BankStatus>('/api/bank/status')
+/**
+ * Estado de la conexión. Con `verify` se comprueba además contra Enable Banking que el
+ * consentimiento siga vivo; sin él se responde con lo guardado, sin salir a la red.
+ *
+ * No se verifica por defecto porque el servidor no puede descartar que esa llamada cuente
+ * para el límite de 4 accesos diarios, y además él mismo la limita a una cada 6 horas.
+ */
+export const getBankStatus = (verify = false) =>
+  call<BankStatus>(`/api/bank/status${verify ? '?verify=1' : ''}`)
 
 export const listAspsps = (country = 'ES') =>
   call<{ aspsps: Aspsp[] }>(`/api/bank/aspsps?country=${encodeURIComponent(country)}`).then((r) => r.aspsps)

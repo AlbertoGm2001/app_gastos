@@ -204,6 +204,55 @@ privada —`ENABLE_BANKING_KEY_PATH` (ruta al `.pem`, lo cómodo en local) o `EN
 PEM entero, para desplegar), y si están las dos gana la variable—, `ENABLE_BANKING_REDIRECT_URL` (debe estar
 en la whitelist del Control Panel) y `DATABASE_URL`.
 
+### Qué autentica cada petición: tres piezas con tres papeles distintos
+
+Es la parte que más se confunde, porque "credenciales del banco" suena a una sola cosa y en realidad son
+tres, cada una con su sitio y su caducidad. Enable Banking **no tiene `client_secret` ni endpoint de token**:
+el JWT lo emite y lo firma la propia app.
+
+| Pieza | Para qué sirve | Dónde vive | Caduca |
+| --- | --- | --- | --- |
+| `application_id` | Es el `kid` del JWT: le dice a Enable Banking con qué clave pública verificar la firma. **No es secreto**, viaja en claro en cada token | Variable de entorno | No |
+| Clave privada RSA | Firmar el JWT. **Es la única credencial de verdad** | Fichero `.pem` en local, `ENABLE_BANKING_PRIVATE_KEY` en el despliegue | No |
+| `uid` de cuenta | Formar la URL: dice **qué** cuenta se pide | Postgres, puesto ahí por el SCA | Con el consentimiento |
+
+Dos cosas que no son obvias y que conviene no volver a mezclar:
+
+- **La firma no cubre la petición.** El JWT lleva solo `{iss, aud, iat, exp}`: ni la ruta, ni el método, ni el
+  cuerpo. Es un bearer token normal, se cachea una hora (`cached` en `server/enablebanking.mjs`) y el mismo
+  token sirve para todas las llamadas de una sync, cada una con su `uid` y su página. Si la firma dependiera
+  de la petición, ese cacheo sería imposible. La contrapartida: ese token, si se filtrara, valdría para
+  cualquier llamada hasta caducar; por eso vive solo en memoria y no se escribe en ningún log.
+- **El `uid` no entra en la firma, entra en la URL.** Son las dos mitades independientes de la misma
+  petición: `GET /accounts/<uid>/transactions?date_from=…` con `Authorization: Bearer <jwt>`. Se puede firmar
+  sin haber leído la base de datos —es lo que hace `GET /api/bank/aspsps`, que lista bancos sin
+  consentimiento ninguno— y por eso el `uid` es lo único del consentimiento imprescindible en cada sync.
+
+El `sessionId`, en cambio, **apenas se usa**: en el código solo sirve para responder "hay conexión" y para
+comprobar que existe antes de sincronizar. Nunca viaja al banco. Su único uso contra la API es
+`getSession()`, para preguntar si el consentimiento sigue vivo (ver abajo).
+
+### Comprobar que el consentimiento sigue vivo
+
+Un consentimiento **se puede revocar desde la banca online del banco**, y de eso la app no se enteraría:
+`validUntil` seguiría en el futuro y el estado diría "conectado" hasta que fallara una sincronización — el
+peor momento para descubrirlo, porque puede costar uno de los 4 accesos diarios.
+
+`GET /api/bank/status?verify=1` lo comprueba contra `GET /sessions/{id}` y refresca `validUntil` y las
+cuentas con lo que diga la API. Las cautelas no son decorativas:
+
+- **Solo con `?verify`,** desde el botón *Comprobar* de la tarjeta de Configuración. Nunca al montar la
+  tarjeta, ni en `GET /api/bank/status` a secas, que es lo que pide el Panel al cargar.
+- **Como mucho una comprobación cada 6 horas** (`VERIFY_EVERY_MS`), lo que en la interpretación más pesimista
+  son 4 al día y no más. Motivo: la referencia de Enable Banking sitúa `GET /sessions/{id}` fuera de
+  *Accounts data* —es su propio registro, no una consulta al banco— pero **no dice que no cuente** para el
+  límite de accesos, y gastarlos a ciegas es caro porque no se recuperan hasta el día siguiente.
+- **Un fallo de red no es una revocación.** Solo se marca `revoked: true` si la API responde
+  `CLOSED_SESSION`, `SESSION_NOT_FOUND` o un 401/403/404; cualquier otro error deja el estado intacto y se
+  informa por separado en `verifyError`. Confundirlos mandaría al usuario a repetir un SCA innecesario.
+- **`expiresInDays` lo calcula el servidor**, no el cliente. El aviso de caducidad no debe depender del reloj
+  del navegador. Antes `BankConnectionCard` restaba la fecha por su cuenta y las dos cuentas podían discrepar.
+
 ### El consentimiento va en la base de datos — REGLA PERMANENTE
 
 La sesión de Enable Banking (`server/session.mjs`) se guarda en `app_state` bajo la clave `bankSession`.
@@ -213,9 +262,14 @@ duerme— y conservarlo obligaba a pagar un disco persistente. Y un consentimien
 solo: hay que repetir el SCA en el banco a mano.
 
 Esto **no contradice** la regla de que en la base de datos van datos y no credenciales. Lo que se guarda es
-el `sessionId` (una referencia al consentimiento que custodia Enable Banking), los uids de cuenta y las
-fechas. La única credencial es la clave privada RSA, que sigue solo en el entorno del proceso: cada petición
-al banco se firma con ella, así que sin la clave el `sessionId` no abre nada.
+el `sessionId` (una referencia opaca al consentimiento que custodia Enable Banking), las fechas y el objeto
+de cuenta tal cual lo devolvió la API: `uid`, nombre, divisa, hashes de identificación y **el IBAN**. La
+única credencial es la clave privada RSA, que sigue solo en el entorno del proceso: cada petición al banco se
+firma con ella, así que sin la clave ni el `sessionId` ni el IBAN abren nada.
+
+Ninguno de esos identificadores se calcula ni se deriva de nada nuestro: los acuña Enable Banking y solo
+significan algo contra sus registros. La asociación con la cuenta real se estableció **en el banco**, durante
+el SCA, y vive en los sistemas del Santander y de Enable Banking; aquí solo queda el asa para agarrarla.
 
 - Está **deliberadamente fuera de `STATE_KEYS`**: `PUT /api/state` no puede tocarla, y `GET /api/state` no la
   devuelve. Si algún día se añade a la lista blanca, el navegador podría reescribir o leer el consentimiento.

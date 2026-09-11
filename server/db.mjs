@@ -326,11 +326,12 @@ export async function readUserState(databaseUrl) {
  * persiste con un disco, y los discos exigen plan pagado. Aquí sobrevive a los
  * despliegues y a que el servicio se duerma.
  *
- * No es una credencial: guarda el `sessionId` —una referencia al consentimiento que
- * custodia Enable Banking—, los uids de cuenta y las fechas. Toda petición al banco se
- * autentica firmando un JWT con la clave privada RSA, que nunca sale del entorno del
- * proceso. Sin esa clave el `sessionId` no abre nada, así que esto son datos, que es lo
- * que va en la base de datos.
+ * No es una credencial: guarda el `sessionId` —una referencia opaca al consentimiento que
+ * custodia Enable Banking—, las fechas y el objeto de cuenta tal como lo devolvió la API,
+ * **IBAN incluido**. Toda petición al banco se autentica firmando un JWT con la clave
+ * privada RSA, que nunca sale del entorno del proceso: sin esa clave ni el `sessionId` ni
+ * el IBAN abren nada. Son datos, no credenciales, y no más sensibles que los movimientos
+ * que ya hay en la tabla de al lado.
  *
  * Deliberadamente fuera de `STATE_KEYS`: `PUT /api/state` no debe poder tocarla.
  */

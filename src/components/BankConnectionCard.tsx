@@ -45,17 +45,22 @@ function readRedirectOutcome(): { message: string | null; error: string | null }
   return { message: null, error: null }
 }
 
-function daysLeft(validUntil: string | null): number | null {
-  if (!validUntil) return null
-  const ms = new Date(validUntil).getTime() - Date.now()
-  return Number.isNaN(ms) ? null : Math.ceil(ms / 86400000)
+/** "hace 3 h", para decir desde cuándo vale la última comprobación del consentimiento. */
+function hace(iso: string | null): string | null {
+  if (!iso) return null
+  const minutos = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (!Number.isFinite(minutos) || minutos < 0) return null
+  if (minutos < 1) return 'ahora mismo'
+  if (minutos < 60) return `hace ${minutos} min`
+  const horas = Math.floor(minutos / 60)
+  return horas < 24 ? `hace ${horas} h` : `hace ${Math.floor(horas / 24)} d`
 }
 
 export function BankConnectionCard({ onSynced }: Props) {
   const [status, setStatus] = useState<BankStatus | null>(null)
   const [aspsps, setAspsps] = useState<Aspsp[]>([])
   const [selected, setSelected] = useState('')
-  const [busy, setBusy] = useState<'status' | 'aspsps' | 'connect' | 'sync' | null>('status')
+  const [busy, setBusy] = useState<'status' | 'aspsps' | 'connect' | 'sync' | 'verify' | null>('status')
   const [error, setError] = useState<string | null>(() => readRedirectOutcome().error)
   const [message, setMessage] = useState<string | null>(() => readRedirectOutcome().message)
 
@@ -63,6 +68,29 @@ export function BankConnectionCard({ onSynced }: Props) {
     setBusy('status')
     try {
       setStatus(await getBankStatus())
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }, [])
+
+  /**
+   * Comprueba contra Enable Banking que el consentimiento siga vivo. Va en un botón y no
+   * al montar la tarjeta porque no está descartado que la llamada cuente para el límite de
+   * 4 accesos diarios, y el servidor la limita de todos modos a una cada 6 horas.
+   */
+  const verifyConsent = useCallback(async () => {
+    setBusy('verify')
+    setError(null)
+    try {
+      const fresh = await getBankStatus(true)
+      setStatus(fresh)
+      if (fresh.revoked) setError('El banco ya no reconoce el consentimiento. Hay que volver a autorizar.')
+      else if (fresh.verifyError) setError(`No se ha podido comprobar: ${fresh.verifyError}`)
+      else if (fresh.verifyThrottled)
+        setMessage('Ya se comprobó hace menos de 6 h; se reutiliza esa respuesta para no gastar accesos.')
+      else setMessage('Consentimiento confirmado por el banco.')
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -148,8 +176,10 @@ export function BankConnectionCard({ onSynced }: Props) {
     await refreshStatus()
   }
 
-  const remaining = daysLeft(status?.validUntil ?? null)
-  const consentExpired = remaining !== null && remaining <= 0
+  // El cálculo lo hace el servidor: aquí solo se pinta. Antes se restaba también en el
+  // cliente y las dos cuentas podían discrepar si el reloj del navegador iba desviado.
+  const remaining = status?.expiresInDays ?? null
+  const consentExpired = status?.revoked === true || (remaining !== null && remaining <= 0)
 
   return (
     <section
@@ -166,9 +196,10 @@ export function BankConnectionCard({ onSynced }: Props) {
 
       {status && !status.configured && (
         <p className="mb-3 rounded border px-3 py-2 text-xs" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }}>
-          Falta configurar <code>ENABLE_BANKING_APPLICATION_ID</code> y <code>ENABLE_BANKING_KEY_PATH</code> en{' '}
-          <code>.env.local</code>. Copia <code>.env.local.example</code> y rellénalo con los datos del Control
-          Panel de Enable Banking.
+          Falta configurar <code>ENABLE_BANKING_APPLICATION_ID</code> y la clave privada (
+          <code>ENABLE_BANKING_KEY_PATH</code> con la ruta al <code>.pem</code>, o{' '}
+          <code>ENABLE_BANKING_PRIVATE_KEY</code> con el PEM entero) en <code>.env.local</code>. Copia{' '}
+          <code>.env.local.example</code> y rellénalo con los datos del Control Panel de Enable Banking.
         </p>
       )}
 
@@ -188,7 +219,32 @@ export function BankConnectionCard({ onSynced }: Props) {
         <div className="flex justify-between gap-2">
           <dt style={{ color: 'var(--text-muted)' }}>Consentimiento</dt>
           <dd style={{ color: consentExpired ? 'var(--status-critical)' : undefined }}>
-            {remaining === null ? '—' : consentExpired ? 'Caducado' : `${remaining} días`}
+            {status?.revoked === true
+              ? 'Revocado en el banco'
+              : remaining === null
+                ? '—'
+                : consentExpired
+                  ? 'Caducado'
+                  : `${remaining} días`}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt style={{ color: 'var(--text-muted)' }}>Comprobado</dt>
+          <dd className="flex items-center gap-2">
+            <span style={{ color: 'var(--text-muted)' }}>
+              {/* Sin comprobar, los días que faltan son una deducción de la fecha guardada:
+                  no detectan una revocación hecha desde la banca online. */}
+              {hace(status?.verifiedAt ?? null) ?? 'nunca'}
+            </span>
+            <button
+              type="button"
+              onClick={verifyConsent}
+              disabled={busy !== null || !status?.connected}
+              className="rounded border px-2 py-0.5 text-xs disabled:opacity-50"
+              style={{ borderColor: 'var(--border-hairline)', color: 'var(--text-secondary)' }}
+            >
+              {busy === 'verify' ? 'Comprobando…' : 'Comprobar'}
+            </button>
           </dd>
         </div>
         <div className="flex justify-between gap-2">
