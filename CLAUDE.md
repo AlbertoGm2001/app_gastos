@@ -325,8 +325,10 @@ Detalles que no son obvios:
 - **`vercel.json` no admite comentarios ni claves de más.** Su esquema declara `additionalProperties: false`,
   así que un `"comment"` dentro de un rewrite —tentador, siendo JSON— hace fallar el despliegue entero. La
   explicación va aquí, no ahí.
-- **El destino del proxy va escrito a mano** porque `vercel.json` no interpola variables de entorno. Si el
-  servicio de Render acaba con otro subdominio, hay que cambiarlo en `vercel.json`.
+- **El destino del proxy va escrito a mano** porque `vercel.json` no interpola variables de entorno: no hay
+  forma de configurarlo desde el panel de Vercel, se edita el fichero y se commitea. Hoy apunta a
+  `app-gastos-api-jfb1.onrender.com` —Render añade un sufijo al subdominio cuando el nombre está cogido—, y
+  si el servicio cambia de URL hay que tocarlo aquí.
 - **La app pasa a ser accesible desde internet.** Hasta ahora el único candado era que corría en localhost;
   ahora lo es de verdad `server/auth.mjs`: un usuario, contraseña del entorno y bloqueo de 60 s tras 5
   intentos. Ese bloqueo vive en memoria del proceso, así que solo cuenta bien con una única instancia de
