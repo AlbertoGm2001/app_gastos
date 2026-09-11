@@ -7,10 +7,20 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:up": "docker start app_gastos_pg",
+    "db:down": "docker stop app_gastos_pg",
+    "db:psql": "docker exec -it app_gastos_pg psql -U gastos -d gastos",
+    "db:import": "node scripts/import-statement.mjs",
+    "cert:trust": "node scripts/trust-cert.mjs",
+    "db:migrate": "node scripts/migrate-dedup.mjs",
+    "db:trips": "node scripts/seed-trips.mjs",
+    "db:manual": "node scripts/import-manual-categories.mjs",
+    "db:schema": "node scripts/create-schema.mjs"
   },
   "dependencies": {
     "date-fns": "^4.4.0",
+    "pg": "^8.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
@@ -19,6 +29,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",

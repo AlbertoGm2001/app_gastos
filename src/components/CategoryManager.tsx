@@ -16,7 +16,7 @@ export function CategoryManager({ categories, onChange }: Props) {
     if (!name) return
     const id = nextCategoryId(categories)
     const color = colorForSlot(categories.length)
-    onChange([...categories, { id, name, color, keywords: [] }])
+    onChange([...categories, { id, name, color, keywords: [], fixedBudget: 0, excludeFromSpending: false }])
     setNewName('')
   }
 
@@ -36,12 +36,22 @@ export function CategoryManager({ categories, onChange }: Props) {
     onChange(categories.map((c) => (c.id === id ? { ...c, name } : c)))
   }
 
+  function toggleExcluded(id: string, excludeFromSpending: boolean) {
+    onChange(categories.map((c) => (c.id === id ? { ...c, excludeFromSpending } : c)))
+  }
+
+  function updateBudget(id: string, raw: string) {
+    const parsed = Number(raw.replace(',', '.'))
+    const fixedBudget = raw.trim() === '' || !Number.isFinite(parsed) || parsed < 0 ? 0 : parsed
+    onChange(categories.map((c) => (c.id === id ? { ...c, fixedBudget } : c)))
+  }
+
   return (
     <div className="space-y-3">
       {categories.length > MAX_COLORED_CATEGORIES && (
         <p className="text-xs" style={{ color: 'var(--status-warning)' }}>
-          A partir de {MAX_COLORED_CATEGORIES} categorías, las siguientes comparten un tono neutro y se
-          agrupan de forma más compacta en el gráfico para mantener la legibilidad de los colores.
+          Los gráficos reservan {MAX_COLORED_CATEGORIES} colores para las categorías con más gasto; las
+          demás comparten un gris neutro para mantener la paleta legible.
         </p>
       )}
 
@@ -59,6 +69,37 @@ export function CategoryManager({ categories, onChange }: Props) {
               className="w-full rounded border px-2 py-1 text-sm font-medium"
               style={{ borderColor: 'var(--border-hairline)', background: 'transparent', color: 'var(--text-primary)' }}
             />
+            <div className="flex items-center gap-2">
+              <label className="text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }} htmlFor={`budget-${c.id}`}>
+                Gasto fijo
+              </label>
+              <input
+                id={`budget-${c.id}`}
+                type="number"
+                min={0}
+                step={5}
+                value={c.fixedBudget ?? 0}
+                onChange={(e) => updateBudget(c.id, e.target.value)}
+                className="w-28 rounded border px-2 py-1 text-xs"
+                style={{
+                  borderColor: 'var(--border-hairline)',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              />
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                € / mes
+              </span>
+              <label className="ml-2 flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                <input
+                  type="checkbox"
+                  checked={c.excludeFromSpending ?? false}
+                  onChange={(e) => toggleExcluded(c.id, e.target.checked)}
+                />
+                No contar como gasto
+              </label>
+            </div>
             <input
               value={c.keywords.join(', ')}
               onChange={(e) => updateKeywords(c.id, e.target.value)}

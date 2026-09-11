@@ -1,0 +1,10 @@
+# Nada de esto hace falta para construir el front, y parte no debe salir de esta maquina.
+# `server/` se queda: vite.config.ts lo importa, sin el no arranca ni el build.
+.certs/
+.enablebanking/
+scripts/
+docs/
+*.pem
+transactions_*.xls
+transactions_*.xlsx
+transactions_*.csv

@@ -1,0 +1,87 @@
+# Despliegue de la API en Render. Solo la API: el front va en Vercel (`vercel.json`) y la
+# base de datos en Neon (Render no la gestiona).
+#
+# El navegador NO llama a este servicio directamente: Vercel reenvía su /api hacia aquí,
+# de modo que todo es del mismo origen y no hay CORS que configurar. Si algún día se
+# llamara directo, harían falta cabeceras CORS y bajar la cookie a `SameSite=None`.
+#
+# Se aplica con un Blueprint: en el panel de Render, New → Blueprint, apuntando al repo.
+# Los valores marcados `sync: false` NO se guardan aquí —son secretos— y Render los pide
+# al crear el servicio o se editan luego en Environment.
+#
+# Antes de que esto funcione hacen falta dos cosas fuera de este fichero:
+#   1. Un Secret File con la clave privada de Enable Banking (ver ENABLE_BANKING_KEY_PATH).
+#   2. Dar de alta la nueva redirect URL en el Control Panel de Enable Banking.
+# Y queda un asunto de cookies entre orígenes distintos, explicado al final.
+
+services:
+  - type: web
+    name: app-gastos-api
+    runtime: node
+    # Frankfurt: la base de datos de Neon está en eu-central-1 y cada consulta cruza esta
+    # distancia. Poner la API en Oregón multiplicaría la latencia de cada sync.
+    region: frankfurt
+    plan: starter
+    branch: master
+
+    buildCommand: npm ci --omit=dev
+    startCommand: node server/server.mjs
+
+    # Ruta pública y baratísima: no toca Postgres ni el banco, solo dice si hay sesión.
+    # Con una ruta protegida el health check daría 401 y Render mataría el servicio en
+    # bucle; con /api/bank/status gastaría accesos al banco, que están limitados a 4/día.
+    healthCheckPath: /api/auth/session
+
+    # El consentimiento de Enable Banking vive en un fichero (server/session.mjs). El
+    # disco de Render es lo único que sobrevive a un despliegue: sin él, cada push
+    # obligaría a repetir el SCA en el banco.
+    disk:
+      name: enablebanking
+      mountPath: /var/data
+      sizeGB: 1
+
+    envVars:
+      - key: NODE_VERSION
+        value: '24'
+      - key: ENABLEBANKING_DIR
+        value: /var/data/enablebanking
+
+      # --- Postgres (Neon) ---
+      # La cadena completa, con sslmode=require (el TLS se activa solo al detectarlo).
+      # Usa el endpoint DIRECTO, no el que lleva "-pooler" en el host: ahí el estado de
+      # sesión no es fiable y da errores intermitentes de "relation does not exist".
+      # Ver el comentario de createPool en server/db.mjs.
+      - key: DATABASE_URL
+        sync: false
+
+      # --- Enable Banking ---
+      - key: ENABLE_BANKING_APPLICATION_ID
+        sync: false
+      # Ruta a la clave privada .pem. Render monta los Secret Files en /etc/secrets/<nombre>,
+      # así que hay que subir la clave como Secret File llamado `enablebanking.pem`
+      # (Dashboard → el servicio → Environment → Secret Files). No se puede declarar aquí:
+      # el contenido de un fichero secreto no va en el repo.
+      - key: ENABLE_BANKING_KEY_PATH
+        value: /etc/secrets/enablebanking.pem
+      - key: ENABLE_BANKING_COUNTRY
+        value: ES
+      # Apunta al dominio de **Vercel**, no a este servicio: el front proxea /api hacia
+      # aquí (ver `vercel.json`), así que el banco devuelve al usuario a Vercel y la
+      # petición llega igual. Es además lo que mantiene la cookie utilizable: el callback
+      # es una navegación de nivel superior y con `SameSite=Lax` solo viaja si el dominio
+      # es el mismo que el del front. Sería
+      # https://<tu-app>.vercel.app/api/bank/callback, y tiene que estar en la whitelist
+      # del Control Panel de Enable Banking.
+      - key: ENABLE_BANKING_REDIRECT_URL
+        sync: false
+
+      # --- Acceso a la app (server/auth.mjs) ---
+      # Sin estas dos la API responde 503 a todo: es fail-closed a propósito.
+      - key: AUTH_USERNAME
+        sync: false
+      - key: AUTH_PASSWORD
+        sync: false
+      # Conviene ponerla explícita aquí, al contrario que en local: si se deriva de las
+      # credenciales, cambiar la contraseña invalida las sesiones abiertas.
+      - key: AUTH_SECRET
+        generateValue: true

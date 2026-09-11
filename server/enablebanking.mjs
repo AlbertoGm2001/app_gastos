@@ -1,0 +1,121 @@
+/**
+ * Cliente de la API de Enable Banking (PSD2 / Open Banking).
+ *
+ * Vive en Node y no en el navegador por dos razones: la clave privada RSA con la que
+ * se firma cada petición no puede viajar al cliente, y api.enablebanking.com no sirve
+ * CORS. Lo consume el middleware de Vite (server/api.mjs).
+ *
+ * Documentación: https://enablebanking.com/docs/api/reference/
+ */
+import { createSign } from 'node:crypto'
+import fs from 'node:fs'
+
+const BASE_URL = 'https://api.enablebanking.com'
+/** Vida del JWT. El máximo que admite la API es 24 h; una hora sobra y se renueva solo. */
+const TOKEN_TTL_SECONDS = 3600
+
+const base64url = (value) => Buffer.from(value).toString('base64url')
+
+let cached = null // { token, expiresAt }
+
+function readPrivateKey(keyPath) {
+  try {
+    return fs.readFileSync(keyPath, 'utf8')
+  } catch {
+    throw new Error(
+      `No se ha podido leer la clave privada de Enable Banking en "${keyPath}". ` +
+        'Descárgala del Control Panel al registrar la aplicación y apunta ENABLE_BANKING_KEY_PATH a ella.',
+    )
+  }
+}
+
+/**
+ * JWT RS256 con el formato que exige Enable Banking: el `kid` es el id de la
+ * aplicación y el issuer/audience son constantes suyas, no nuestras.
+ */
+function buildToken({ applicationId, keyPath }) {
+  const now = Math.floor(Date.now() / 1000)
+  if (cached && cached.expiresAt - 60 > now) return cached.token
+
+  const header = { typ: 'JWT', alg: 'RS256', kid: applicationId }
+  const payload = {
+    iss: 'enablebanking.com',
+    aud: 'api.enablebanking.com',
+    iat: now,
+    exp: now + TOKEN_TTL_SECONDS,
+  }
+  const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`
+  const signature = createSign('RSA-SHA256').update(signingInput).sign(readPrivateKey(keyPath)).toString('base64url')
+
+  cached = { token: `${signingInput}.${signature}`, expiresAt: payload.exp }
+  return cached.token
+}
+
+export function createClient({ applicationId, keyPath }) {
+  if (!applicationId) throw new Error('Falta ENABLE_BANKING_APPLICATION_ID en .env.local')
+
+  async function request(method, path, body) {
+    const response = await fetch(`${BASE_URL}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${buildToken({ applicationId, keyPath })}`,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    })
+    const text = await response.text()
+    let data
+    try {
+      data = text ? JSON.parse(text) : {}
+    } catch {
+      data = { raw: text }
+    }
+    if (!response.ok) {
+      const detail = data?.message ?? data?.error ?? data?.raw ?? response.statusText
+      throw new Error(`Enable Banking ${method} ${path} → ${response.status}: ${detail}`)
+    }
+    return data
+  }
+
+  return {
+    /** Bancos disponibles en un país (ISO-2). */
+    listAspsps: (country = 'ES') => request('GET', `/aspsps?country=${encodeURIComponent(country)}`),
+
+    /**
+     * Arranca la autorización del usuario en su banco. Devuelve la URL a la que hay
+     * que enviarlo para el SCA; `redirectUrl` tiene que estar en la whitelist de la app.
+     */
+    startAuthorization: ({ aspspName, country, redirectUrl, state, validUntil, psuType = 'personal' }) =>
+      request('POST', '/auth', {
+        access: { valid_until: validUntil },
+        aspsp: { name: aspspName, country },
+        state,
+        redirect_url: redirectUrl,
+        psu_type: psuType,
+      }),
+
+    /** Canjea el `code` del redirect por una sesión con las cuentas autorizadas. */
+    createSession: (code) => request('POST', '/sessions', { code }),
+
+    getSession: (sessionId) => request('GET', `/sessions/${encodeURIComponent(sessionId)}`),
+
+    /**
+     * Movimientos de una cuenta desde `dateFrom`, siguiendo la paginación por
+     * `continuation_key` hasta agotarla.
+     */
+    async listTransactions({ accountUid, dateFrom }) {
+      const all = []
+      let continuationKey
+      do {
+        const params = new URLSearchParams()
+        if (dateFrom) params.set('date_from', dateFrom)
+        if (continuationKey) params.set('continuation_key', continuationKey)
+        const query = params.size > 0 ? `?${params}` : ''
+        const page = await request('GET', `/accounts/${encodeURIComponent(accountUid)}/transactions${query}`)
+        all.push(...(page.transactions ?? []))
+        continuationKey = page.continuation_key
+      } while (continuationKey)
+      return all
+    },
+  }
+}

@@ -8,9 +8,20 @@ interface Props {
   categories: Category[]
   onReassign: (transactionId: string, categoryId: string) => void
   onImport: (transactions: Transaction[]) => void
+  initialCategoryFilter?: string
+  /** Umbral de gasto relevante, para el filtro de movimientos significativos. */
+  relevantThreshold: number
 }
 
-export function MovimientosPage({ transactions, allTransactions, categories, onReassign, onImport }: Props) {
+export function MovimientosPage({
+  transactions,
+  allTransactions,
+  categories,
+  onReassign,
+  onImport,
+  initialCategoryFilter,
+  relevantThreshold,
+}: Props) {
   return (
     <div className="space-y-6">
       <section
@@ -30,7 +41,13 @@ export function MovimientosPage({ transactions, allTransactions, categories, onR
         <h2 className="mb-4 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
           Movimientos
         </h2>
-        <TransactionsList transactions={transactions} categories={categories} onReassign={onReassign} />
+        <TransactionsList
+          transactions={transactions}
+          categories={categories}
+          onReassign={onReassign}
+          initialCategoryFilter={initialCategoryFilter}
+          relevantThreshold={relevantThreshold}
+        />
       </section>
     </div>
   )

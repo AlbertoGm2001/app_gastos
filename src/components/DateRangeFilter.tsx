@@ -5,14 +5,16 @@ interface Props {
   value: DateRange
   onChange: (range: DateRange) => void
   today: Date
+  /** Primera fecha con movimientos: habilita el preset "Todo el histórico". */
+  firstDate?: string
 }
 
-export function DateRangeFilter({ value, onChange, today }: Props) {
+export function DateRangeFilter({ value, onChange, today, firstDate }: Props) {
   const [open, setOpen] = useState(false)
   const [customStart, setCustomStart] = useState(value.start)
   const [customEnd, setCustomEnd] = useState(value.end)
   const rootRef = useRef<HTMLDivElement>(null)
-  const presets = buildPresets(today)
+  const presets = buildPresets(today, firstDate)
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { formatEUR } from '../lib/aggregate'
-import { ImportError, dedupeKey, parseTransactionsFile, type ParsedImport } from '../lib/importTransactions'
+import { ImportError, parseTransactionsFile, type ParsedImport } from '../lib/importTransactions'
+import { subtractExisting } from '../lib/dedup'
 import type { Transaction } from '../types'
 
 interface Props {
@@ -26,8 +27,7 @@ export function ImportTransactions({ existingTransactions, onImport }: Props) {
     setLoading(true)
     try {
       const parsed = await parseTransactionsFile(file)
-      const existingKeys = new Set(existingTransactions.map(dedupeKey))
-      const newTransactions = parsed.transactions.filter((t) => !existingKeys.has(dedupeKey(t)))
+      const newTransactions = subtractExisting(parsed.transactions, existingTransactions)
       setPreview({ ...parsed, duplicateCount: parsed.transactions.length - newTransactions.length, newTransactions })
     } catch (e) {
       setError(e instanceof ImportError ? e.message : 'No se ha podido leer el archivo. Comprueba que sea un Excel o CSV válido.')

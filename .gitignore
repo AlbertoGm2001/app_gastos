@@ -21,3 +21,19 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.gstack/
+
+# Enable Banking: clave privada, sesión con el consentimiento y credenciales de Neon
+*.pem
+.env.local
+.enablebanking/
+
+# Datos bancarios reales: no salen de esta maquina.
+# El extracto del Santander lleva importes, comercios y nombres completos de
+# terceros (Bizum). La fuente de verdad es Postgres, no el repo.
+transactions_*.xls
+transactions_*.xlsx
+transactions_*.csv
+
+# Certificados TLS locales (mkcert): incluyen clave privada
+.certs/

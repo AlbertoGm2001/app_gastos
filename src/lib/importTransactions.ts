@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import type { Transaction } from '../types'
+import { LOCAL_ID_PREFIX, assignContentIds } from './dedup'
 
 export interface ParsedImport {
   fileName: string
@@ -29,7 +30,9 @@ function matchColumn(headerRow: string[], candidates: string[]): number {
 function findHeader(rows: unknown[][]) {
   const scanLimit = Math.min(rows.length, 30)
   for (let i = 0; i < scanLimit; i += 1) {
-    const row = (rows[i] ?? []).map(normalize)
+    // sheet_to_json devuelve arrays dispersos (celdas vacías = huecos): Array.from los
+    // densifica para que normalize() reciba undefined en vez de saltarse el índice.
+    const row = Array.from(rows[i] ?? [], normalize)
     const dateCol = matchColumn(row, DATE_HEADERS)
     const descCol = matchColumn(row, DESC_HEADERS)
     const amountCol = matchColumn(row, AMOUNT_HEADERS)
@@ -87,10 +90,6 @@ function parseAmount(raw: unknown): number | null {
   return isParenNegative || isTrailingNegative ? -Math.abs(num) : num
 }
 
-function makeId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
-  return `import-${Math.random().toString(36).slice(2)}`
-}
 
 export async function parseTransactionsFile(file: File): Promise<ParsedImport> {
   const buffer = await file.arrayBuffer()
@@ -126,7 +125,7 @@ export async function parseTransactionsFile(file: File): Promise<ParsedImport> {
     }
 
     transactions.push({
-      id: makeId(),
+      id: '',
       date,
       merchant: description,
       description,
@@ -140,12 +139,18 @@ export async function parseTransactionsFile(file: File): Promise<ParsedImport> {
 
   return {
     fileName: file.name,
-    transactions,
+    // El id sale del contenido, no de un UUID aleatorio: antes reimportar el mismo fichero
+    // creaba movimientos nuevos cada vez, porque ningún id coincidía con lo ya guardado.
+    transactions: await assignContentIds(transactions, LOCAL_ID_PREFIX.replace(/-$/, '')),
     skippedRows,
     headerRowPreview: (rows[header.rowIndex] ?? []).map((c) => String(c ?? '')),
   }
 }
 
-export function dedupeKey(t: Pick<Transaction, 'date' | 'description' | 'amount'>): string {
-  return `${t.date}|${t.description.trim().toLowerCase()}|${t.amount.toFixed(2)}`
-}
+/**
+ * Clave de duplicado. Delega en `contentKey` para que el navegador, la API local y el
+ * importador de extracto consideren duplicado exactamente lo mismo: antes esta clave solo
+ * pasaba el concepto a minúsculas, así que "Pago Movil En Moeve" y "PAGO MOVIL EN MOEVE,"
+ * —el mismo movimiento visto por el .xls y por la API— no casaban.
+ */
+export { contentKey as dedupeKey } from './dedup'

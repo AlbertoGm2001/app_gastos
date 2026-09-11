@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
+import { logout } from '../lib/auth'
 
-export type PageId = 'dashboard' | 'movimientos' | 'configuracion'
+export type PageId = 'dashboard' | 'movimientos' | 'viajes' | 'configuracion'
 
 interface NavItem {
   id: PageId
@@ -21,6 +22,17 @@ const ICONS = {
       <path d="M3 5h12M3 9h12M3 13h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   ),
+  viajes: (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
+      <path
+        d="M2.5 12.5h13M4.5 12.5l1.2-3.4a1 1 0 0 1 .94-.66h5.2l2.2-3.1a1 1 0 0 1 1.63 1.16L13.6 9.4l1.2 3.1"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
   configuracion: (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
       <circle cx="9" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.5" />
@@ -32,11 +44,23 @@ const ICONS = {
       />
     </svg>
   ),
+  logout: (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
+      <path
+        d="M11 2.5H4.5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1H11M8.5 9h6.5m0 0-2.2-2.2M15 9l-2.2 2.2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
 }
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Panel', icon: ICONS.dashboard },
   { id: 'movimientos', label: 'Movimientos', icon: ICONS.movimientos },
+  { id: 'viajes', label: 'Viajes', icon: ICONS.viajes },
   { id: 'configuracion', label: 'Configuración', icon: ICONS.configuracion },
 ]
 
@@ -76,6 +100,23 @@ export function Sidebar({ active, onNavigate }: Props) {
           </button>
         )
       })}
+
+      {/*
+        Salir recarga la página en vez de tocar el estado de React: al caer la cookie hay
+        que volver a pasar por AuthGate, y así no queda en memoria nada de los movimientos
+        de la sesión anterior.
+      */}
+      <button
+        type="button"
+        onClick={() => {
+          void logout().finally(() => window.location.reload())
+        }}
+        className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors sm:mt-auto"
+        style={{ color: 'var(--text-muted)' }}
+      >
+        {ICONS.logout}
+        <span>Salir</span>
+      </button>
     </nav>
   )
 }

@@ -87,3 +87,18 @@ body {
 ::selection {
   background: color-mix(in srgb, var(--series-1) 30%, transparent);
 }
+
+/*
+ * Los <select> heredaban fondo transparente y, al desplegarse, el navegador
+ * pintaba las opciones con el color del sistema: blanco sobre blanco. Fondo y
+ * color explícitos en el control y en cada opción.
+ */
+select {
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
+select option {
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
